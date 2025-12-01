@@ -1,6 +1,8 @@
-## Autonomous Environmental Response Drone (with @n1chey)
+## Lic-Environment
 
-A collaborative project focused on building a fully autonomous drone system capable of detecting environmental hazards in real time.
+### Description
+
+A collaborative project with @n1chey focused on building a fully autonomous drone system capable of detecting environmental hazards in real time.
 
 The drone uses an onboard AI model — developed entirely by us — to analyze live camera footage and identify early signs of oil spills, smoke, or wildfires. When a threat is detected, the system automatically alerts emergency services and stores captured imagery for auditing, verification, and future model improvement.
 
