@@ -45,24 +45,30 @@ def load_image(path):
 def build_feature_extractor(model):
     # Use the Dense(64) layer output — second-to-last trainable layer,
     # before dropout and the final sigmoid. Gives a 64-dim feature vector.
-    dense64_layer = None
-    for layer in model.layers:
-        if hasattr(layer, 'units') and layer.units == 64:
-            dense64_layer = layer
-    if dense64_layer is None:
-        raise RuntimeError("Could not find Dense(64) layer in model")
-    return keras.Model(inputs=model.inputs, outputs=dense64_layer.output)
+    # Find the largest Dense layer before the output (used as feature representation)
+    feature_layer = None
+    for layer in model.layers[:-1]:  # exclude final output layer
+        if hasattr(layer, 'units'):
+            feature_layer = layer
+    if feature_layer is None:
+        raise RuntimeError("Could not find feature Dense layer in model")
+    return keras.Model(inputs=model.inputs, outputs=feature_layer.output)
+
+
+def normalize(v):
+    n = np.linalg.norm(v)
+    return v / n if n > 0 else v
+
+
+def cosine_distance(a, b):
+    return 1.0 - np.dot(normalize(a), normalize(b))
 
 
 def compute_centroids_and_radius(feature_extractor, train_dir):
-    """
-    Returns:
-      centroids: {class_index: mean_feature_vector}
-      radius: max distance from any training image to its own centroid
-              (defines the boundary of "known" space)
-    """
     class_features = {}
-    for class_idx, class_name in enumerate(sorted(os.listdir(train_dir))):
+    class_dirs = sorted(d for d in os.listdir(train_dir)
+                        if os.path.isdir(os.path.join(train_dir, d)))
+    for class_idx, class_name in enumerate(class_dirs):
         class_path = os.path.join(train_dir, class_name)
         if not os.path.isdir(class_path):
             continue
@@ -71,38 +77,49 @@ def compute_centroids_and_radius(feature_extractor, train_dir):
             fpath = os.path.join(class_path, fname)
             try:
                 arr = np.expand_dims(load_image(fpath), axis=0)
-                feat = feature_extractor.predict(arr, verbose=0)[0]
+                feat = normalize(feature_extractor.predict(arr, verbose=0)[0])
                 features.append(feat)
             except Exception:
                 continue
         if features:
             class_features[class_idx] = np.array(features)
 
-    centroids = {cls: feats.mean(axis=0) for cls, feats in class_features.items()}
+    centroids = {cls: normalize(feats.mean(axis=0)) for cls, feats in class_features.items()}
 
-    # Radius = largest distance from any training image to its own centroid
+    # Radius = max cosine distance from any training image to its own centroid
     radius = 0.0
     for cls, feats in class_features.items():
         centroid = centroids[cls]
         for feat in feats:
-            dist = np.linalg.norm(feat - centroid)
+            dist = cosine_distance(feat, centroid)
             if dist > radius:
                 radius = dist
+
+    # If model overfit so hard that all training images collapsed to same point,
+    # fall back to using a fraction of the inter-class distance as the radius.
+    if radius < 1e-6 and len(centroids) >= 2:
+        keys = list(centroids.keys())
+        inter_class_dist = cosine_distance(centroids[keys[0]], centroids[keys[1]])
+        radius = inter_class_dist * 0.25
+        print(f"Warning: overfit model detected (radius≈0). Using inter-class fallback radius: {radius:.4f}")
 
     return centroids, radius
 
 
-def classify(feature_extractor, centroids, radius, test_image):
-    feat = feature_extractor.predict(test_image, verbose=0)[0]
-    distances = {cls: np.linalg.norm(feat - centroid) for cls, centroid in centroids.items()}
-    nearest_cls = min(distances, key=distances.get)
-    nearest_dist = distances[nearest_cls]
+def classify(feature_extractor, model, centroids, radius, test_image):
+    feat = normalize(feature_extractor.predict(test_image, verbose=0)[0])
+    distances = {cls: cosine_distance(feat, centroid) for cls, centroid in centroids.items()}
+    nearest_dist = min(distances.values())
     threshold = radius * NEITHER_SENSITIVITY
-
     confidence = 1.0 - (nearest_dist / threshold)
+
     if nearest_dist > threshold or confidence < MIN_CONFIDENCE:
         return Z, None
-    elif nearest_cls == 0:
+
+    # Feature distance says it's in-distribution — use softmax for X vs Y
+    probs = model.predict(test_image, verbose=0)[0]
+    score = float(probs[1])  # probability of class 1 (Wildfire)
+    if score < 0.5:
         return X, confidence
     else:
         return Y, confidence
@@ -143,10 +160,11 @@ def uploaded_file(filename):
     test_image = np.expand_dims(load_image(filepath), axis=0)
 
     feature_extractor = app.config['FEATURE_EXTRACTOR']
+    model = app.config['MODEL']
     centroids = app.config['CENTROIDS']
     radius = app.config['RADIUS']
 
-    label, confidence = classify(feature_extractor, centroids, radius, test_image)
+    label, confidence = classify(feature_extractor, model, centroids, radius, test_image)
     image_src = "/" + UPLOAD_FOLDER + "/" + filename
 
     if label == X:
@@ -174,6 +192,7 @@ def main():
     print(f"Cluster radius: {radius:.4f}  |  Neither threshold: {radius * NEITHER_SENSITIVITY:.4f}")
 
     app.config['SECRET_KEY'] = 'super secret key'
+    app.config['MODEL'] = myModel
     app.config['FEATURE_EXTRACTOR'] = feature_extractor
     app.config['CENTROIDS'] = centroids
     app.config['RADIUS'] = radius
