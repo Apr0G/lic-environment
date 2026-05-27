@@ -2,8 +2,6 @@
 
 A Flask web app that classifies drone images as either an oil spill or a wildfire using a custom-trained CNN. Upload an image and get an instant prediction — every upload is saved to continuously expand the training dataset.
 
-> _Add a screenshot of the web interface and a sample prediction here._
-
 ---
 
 ## How it works
