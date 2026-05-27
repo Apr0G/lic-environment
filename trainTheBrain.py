@@ -1,5 +1,5 @@
 """
-author: AproG123 & N1chey
+author: AproG & N1chey
 """
 
 import os
