@@ -1,16 +1,34 @@
 # lic-environment
 
-A Flask web app that classifies drone images as either an oil spill or a wildfire using a custom-trained CNN. Upload an image and get an instant prediction — every upload is saved to continuously expand the training dataset.
+A Flask web app that classifies drone images as an oil spill, a wildfire, or neither — using a custom-trained CNN with a feature extractor and cluster-based similarity scoring. Upload an image and get an instant prediction with a confidence percentage. Every upload is saved to continuously expand the training dataset.
+
+---
+
+## Demo
+
+**Web interface** — upload any image and get a labeled prediction with similarity score:
+
+![Web interface showing predictions](static/screenshots/ui.png)
+
+**Training output:**
+
+![Training output](static/screenshots/training.png)
+
+**Starting the server:**
+
+![Server startup](static/screenshots/server.png)
 
 ---
 
 ## How it works
 
-**Model (`trainTheBrain.py`)** — a binary CNN built with Keras: three Conv2D + MaxPooling blocks, a fully connected layer with 0.5 Dropout, and a sigmoid output. Trained on images in `train/` and evaluated against `validation/`, then saved as `saved_model.h5`.
+**Model (`trainTheBrain.py`)** — a binary CNN built with Keras: three Conv2D + MaxPooling blocks, a Dense layer with 0.5 Dropout, and a sigmoid output. Trained on images in `train/` and validated against `validation/`, then saved as `saved_model.h5`.
 
-**Web app (`website.py`)** — Flask serves an image upload form. Submitted images are resized to 150×150, passed through the loaded model, and classified as either oil spill or wildfire with a confidence score.
+**"Neither" detection** — on startup, `website.py` builds a feature extractor from the trained model and computes cluster centroids over the training data. Incoming images are embedded and compared against these centroids; if the distance exceeds a threshold, the image is classified as "Neither" rather than forcing a false positive.
 
-**Data flywheel** — all uploaded images are stored in `static/uploads/`, building up a dataset for future retraining runs.
+**Similarity score** — each prediction includes a percentage indicating how closely the uploaded image matches the training data distribution.
+
+**Data flywheel** — all uploaded images are stored in `static/uploads/`, building up a dataset for future retraining.
 
 ---
 
@@ -24,7 +42,6 @@ Python · Flask · TensorFlow / Keras · NumPy · Pillow
 
 **1. Prepare your dataset**
 
-Place training images in:
 ```
 train/
   OilSpills/
@@ -48,7 +65,7 @@ python trainTheBrain.py
 python website.py
 ```
 
-Open `http://localhost:5000`, upload a drone image, and get a prediction.
+Open `http://localhost:5001`, upload a drone image, and get a prediction.
 
 ---
 
